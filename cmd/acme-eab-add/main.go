@@ -233,6 +233,18 @@ func removeProvisionerIndex(db nosql.DB, provisionerID string, kid string) error
 		return nil
 	}
 
+	if len(newIDs) == 0 {
+		_, swapped, err := db.CmpAndSwap(externalAccountKeyIDsByProvisionerIDTable, []byte(provisionerID), oldRaw, nil)
+		switch {
+		case err != nil:
+			return errors.Wrap(err, "deleting provisioner index")
+		case !swapped:
+			return errors.New("provisioner index changed while writing")
+		default:
+			return errors.Wrap(db.Del(externalAccountKeyIDsByProvisionerIDTable, []byte(provisionerID)), "deleting provisioner index")
+		}
+	}
+
 	newRaw, err := json.Marshal(newIDs)
 	if err != nil {
 		return errors.Wrap(err, "marshaling provisioner index")
