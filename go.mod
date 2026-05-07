@@ -1,6 +1,6 @@
 module github.com/attilaolah/acme-eab
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/pkg/errors v0.9.1
@@ -21,7 +21,7 @@ require (
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.8.0 // indirect
+	github.com/jackc/pgx/v5 v5.9.2 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/compress v1.12.3 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect

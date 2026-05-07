@@ -23,7 +23,7 @@
         version = "0.1.0";
 
         src = ./.;
-        vendorHash = "sha256-hdyezWkl4yw5PlmT82mRYZJSxHZRpQQPmiITpxZp1/k=";
+        vendorHash = "sha256-gMwKX6rwKia4+hhbMJrJLhXidT47JGsd0//fyBemRVA=";
 
         subPackages = ["cmd/acme-eab-add"];
 
