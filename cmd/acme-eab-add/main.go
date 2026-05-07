@@ -33,6 +33,7 @@ type externalAccountKeyReference struct {
 	ExternalAccountKeyID string `json:"externalAccountKeyID"`
 }
 
+// main runs the command.
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "acme-eab-add: %v\n", err)
@@ -40,6 +41,7 @@ func main() {
 	}
 }
 
+// run parses flags and writes the EAB key.
 func run() (err error) {
 	var (
 		dbPath        string
@@ -127,6 +129,7 @@ func run() (err error) {
 	return nil
 }
 
+// replaceReference removes an existing reference key.
 func replaceReference(db nosql.DB, provisionerID string, reference string) error {
 	refRaw, err := db.Get(externalAccountKeyIDsByReferenceTable, []byte(referenceKey(provisionerID, reference)))
 	if nosql.IsErrNotFound(err) {
@@ -172,6 +175,7 @@ func replaceReference(db nosql.DB, provisionerID string, reference string) error
 	return nil
 }
 
+// deleteReference deletes a reference index entry.
 func deleteReference(db nosql.DB, provisionerID string, reference string) error {
 	err := db.Del(externalAccountKeyIDsByReferenceTable, []byte(referenceKey(provisionerID, reference)))
 	if nosql.IsErrNotFound(err) {
@@ -180,6 +184,7 @@ func deleteReference(db nosql.DB, provisionerID string, reference string) error 
 	return errors.Wrap(err, "deleting existing reference")
 }
 
+// deleteKey deletes an EAB key.
 func deleteKey(db nosql.DB, kid string) error {
 	err := db.Del(externalAccountKeyTable, []byte(kid))
 	if nosql.IsErrNotFound(err) {
@@ -188,6 +193,7 @@ func deleteKey(db nosql.DB, kid string) error {
 	return errors.Wrap(err, "deleting existing key")
 }
 
+// createJSON writes a JSON value if absent.
 func createJSON(db nosql.DB, table []byte, key string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -205,6 +211,7 @@ func createJSON(db nosql.DB, table []byte, key string, value any) error {
 	}
 }
 
+// removeProvisionerIndex removes a key ID.
 func removeProvisionerIndex(db nosql.DB, provisionerID string, kid string) error {
 	if provisionerID == "" {
 		return nil
@@ -261,6 +268,7 @@ func removeProvisionerIndex(db nosql.DB, provisionerID string, kid string) error
 	}
 }
 
+// addProvisionerIndex adds a key ID.
 func addProvisionerIndex(db nosql.DB, provisionerID string, kid string) error {
 	if provisionerID == "" {
 		return nil
@@ -304,6 +312,7 @@ func addProvisionerIndex(db nosql.DB, provisionerID string, kid string) error {
 	}
 }
 
+// referenceKey returns the reference index key.
 func referenceKey(provisionerID string, reference string) string {
 	return provisionerID + "\x00" + reference
 }
