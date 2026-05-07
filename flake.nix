@@ -3,7 +3,11 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = {nixpkgs, ...}: let
+  outputs = {
+    self,
+    nixpkgs,
+    ...
+  }: let
     inherit (nixpkgs) lib;
 
     systems = [
@@ -20,7 +24,7 @@
     in rec {
       acme-eab-add = pkgs.buildGoModule {
         pname = "acme-eab-add";
-        version = "0.1.0";
+        version = self.shortRev or self.dirtyShortRev or "dirty";
 
         src = ./.;
         vendorHash = "sha256-gMwKX6rwKia4+hhbMJrJLhXidT47JGsd0//fyBemRVA=";
