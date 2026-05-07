@@ -1,4 +1,4 @@
-# acme-eab-add
+# `acme-eab-add`
 
 ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/attilaolah/acme-eab?utm_source=oss&utm_medium=github&utm_campaign=attilaolah%2Facme-eab&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 
@@ -29,3 +29,7 @@ acme-eab-add \
 go test ./...
 nix build
 ```
+
+## Vibe coded
+
+Yes this is entirely vibe-coded. You have been warned.
