@@ -40,7 +40,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (err error) {
 	var (
 		dbPath        string
 		hmacKey       string
@@ -77,7 +77,11 @@ func run() error {
 	if err != nil {
 		return errors.Wrap(err, "opening DB")
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil && err == nil {
+			err = errors.Wrap(closeErr, "closing DB")
+		}
+	}()
 
 	for _, table := range [][]byte{
 		externalAccountKeyTable,
@@ -289,5 +293,5 @@ func addProvisionerIndex(db nosql.DB, provisionerID string, kid string) error {
 }
 
 func referenceKey(provisionerID string, reference string) string {
-	return provisionerID + "." + reference
+	return provisionerID + "\x00" + reference
 }
