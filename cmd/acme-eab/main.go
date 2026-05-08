@@ -12,6 +12,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/smallstep/nosql"
+	"github.com/smallstep/nosql/database"
 )
 
 var (
@@ -46,6 +47,11 @@ type listedExternalAccountKey struct {
 type referenceIndexEntry struct {
 	ProvisionerID string
 	Reference     string
+}
+
+type provisionerIndexMutation struct {
+	exists bool
+	ids    []string
 }
 
 // main runs the command.
@@ -115,6 +121,9 @@ func runAdd(args []string) (err error) {
 	if kid == "" {
 		return errors.New("--kid is required")
 	}
+	if replace && reference == "" {
+		return errors.New("--replace requires --reference")
+	}
 
 	rawKey, err := base64.RawURLEncoding.DecodeString(keyValue)
 	if err != nil {
@@ -135,12 +144,6 @@ func runAdd(args []string) (err error) {
 		return err
 	}
 
-	if replace && reference != "" {
-		if err := replaceReference(db, provisionerID, reference); err != nil {
-			return err
-		}
-	}
-
 	key := &externalAccountKey{
 		ID:            kid,
 		ProvisionerID: provisionerID,
@@ -148,25 +151,7 @@ func runAdd(args []string) (err error) {
 		HmacKey:       rawKey,
 		CreatedAt:     time.Now().UTC().Truncate(time.Second),
 	}
-	if err := createJSON(db, externalAccountKeyTable, kid, key); err != nil {
-		return err
-	}
-
-	if err := addProvisionerIndex(db, provisionerID, kid); err != nil {
-		return err
-	}
-
-	if reference != "" {
-		ref := &externalAccountKeyReference{
-			Reference:            reference,
-			ExternalAccountKeyID: kid,
-		}
-		if err := createJSON(db, externalAccountKeyIDsByReferenceTable, referenceKey(provisionerID, reference), ref); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return addKey(db, key, replace)
 }
 
 // runList parses flags and lists EAB keys as JSON.
@@ -406,6 +391,173 @@ func splitReferenceKey(key []byte) (string, string) {
 	return string(provisionerID), string(reference)
 }
 
+// addKey adds an EAB key and updates its secondary indexes in one transaction.
+func addKey(db nosql.DB, key *externalAccountKey, replace bool) error {
+	var replacedKey *externalAccountKey
+	refKey := referenceKey(key.ProvisionerID, key.Reference)
+	tx := &database.Tx{}
+	provisionerIndexes := map[string]*provisionerIndexMutation{}
+
+	getProvisionerIndex := func(provisionerID string) (*provisionerIndexMutation, error) {
+		if provisionerID == "" {
+			return nil, nil
+		}
+		if index, ok := provisionerIndexes[provisionerID]; ok {
+			return index, nil
+		}
+
+		index := &provisionerIndexMutation{}
+		raw, err := db.Get(externalAccountKeyIDsByProvisionerIDTable, []byte(provisionerID))
+		switch {
+		case err == nil:
+			index.exists = true
+			if err := json.Unmarshal(raw, &index.ids); err != nil {
+				return nil, errors.Wrap(err, "unmarshaling provisioner index")
+			}
+		case nosql.IsErrNotFound(err):
+		default:
+			return nil, errors.Wrap(err, "reading provisioner index")
+		}
+
+		provisionerIndexes[provisionerID] = index
+		return index, nil
+	}
+
+	if replace {
+		refRaw, err := db.Get(externalAccountKeyIDsByReferenceTable, []byte(refKey))
+		switch {
+		case err == nil:
+			var ref externalAccountKeyReference
+			if err := json.Unmarshal(refRaw, &ref); err != nil {
+				return errors.Wrap(err, "unmarshaling existing reference")
+			}
+
+			keyRaw, err := db.Get(externalAccountKeyTable, []byte(ref.ExternalAccountKeyID))
+			switch {
+			case err == nil:
+				var oldKey externalAccountKey
+				if err := json.Unmarshal(keyRaw, &oldKey); err != nil {
+					return errors.Wrap(err, "unmarshaling existing key")
+				}
+				if oldKey.ProvisionerID != key.ProvisionerID {
+					return errors.New("existing key has a different provisioner")
+				}
+				replacedKey = &oldKey
+			case nosql.IsErrNotFound(err):
+				tx.Del(externalAccountKeyIDsByReferenceTable, []byte(refKey))
+			default:
+				return errors.Wrap(err, "reading existing key")
+			}
+		case nosql.IsErrNotFound(err):
+		default:
+			return errors.Wrap(err, "reading existing reference")
+		}
+	}
+
+	_, err := db.Get(externalAccountKeyTable, []byte(key.ID))
+	switch {
+	case err == nil:
+		if replacedKey == nil || replacedKey.ID != key.ID {
+			return errors.Errorf("%s/%s already exists", externalAccountKeyTable, key.ID)
+		}
+	case nosql.IsErrNotFound(err):
+	default:
+		return errors.Wrap(err, "reading existing key")
+	}
+
+	if key.Reference != "" && !replace {
+		_, err := db.Get(externalAccountKeyIDsByReferenceTable, []byte(refKey))
+		switch {
+		case err == nil:
+			return errors.Errorf("%s/%s already exists", externalAccountKeyIDsByReferenceTable, refKey)
+		case nosql.IsErrNotFound(err):
+		default:
+			return errors.Wrap(err, "reading existing reference")
+		}
+	}
+
+	if replacedKey != nil {
+		tx.Del(externalAccountKeyTable, []byte(replacedKey.ID))
+		if replacedKey.Reference != "" {
+			tx.Del(externalAccountKeyIDsByReferenceTable, []byte(referenceKey(replacedKey.ProvisionerID, replacedKey.Reference)))
+		}
+
+		index, err := getProvisionerIndex(replacedKey.ProvisionerID)
+		if err != nil {
+			return err
+		}
+		if index != nil {
+			index.ids = removeString(index.ids, replacedKey.ID)
+		}
+	}
+
+	index, err := getProvisionerIndex(key.ProvisionerID)
+	if err != nil {
+		return err
+	}
+	if index != nil {
+		if containsString(index.ids, key.ID) {
+			return errors.Errorf("provisioner index already contains %s", key.ID)
+		}
+		index.ids = append(index.ids, key.ID)
+	}
+
+	keyData, err := json.Marshal(key)
+	if err != nil {
+		return errors.Wrap(err, "marshaling key")
+	}
+	tx.Set(externalAccountKeyTable, []byte(key.ID), keyData)
+
+	if key.Reference != "" {
+		ref := &externalAccountKeyReference{
+			Reference:            key.Reference,
+			ExternalAccountKeyID: key.ID,
+		}
+		refData, err := json.Marshal(ref)
+		if err != nil {
+			return errors.Wrap(err, "marshaling reference")
+		}
+		tx.Set(externalAccountKeyIDsByReferenceTable, []byte(refKey), refData)
+	}
+
+	for provisionerID, index := range provisionerIndexes {
+		if !index.exists && len(index.ids) == 0 {
+			continue
+		}
+		if len(index.ids) == 0 {
+			tx.Del(externalAccountKeyIDsByProvisionerIDTable, []byte(provisionerID))
+			continue
+		}
+
+		indexData, err := json.Marshal(index.ids)
+		if err != nil {
+			return errors.Wrap(err, "marshaling provisioner index")
+		}
+		tx.Set(externalAccountKeyIDsByProvisionerIDTable, []byte(provisionerID), indexData)
+	}
+
+	return errors.Wrap(db.Update(tx), "writing key")
+}
+
+func containsString(values []string, value string) bool {
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(values []string, value string) []string {
+	filtered := values[:0]
+	for _, v := range values {
+		if v != value {
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
+}
+
 // replaceReference removes an existing reference key.
 func replaceReference(db nosql.DB, provisionerID string, reference string) error {
 	refRaw, err := db.Get(externalAccountKeyIDsByReferenceTable, []byte(referenceKey(provisionerID, reference)))
@@ -525,7 +677,11 @@ func removeProvisionerIndex(db nosql.DB, provisionerID string, kid string) error
 		case !swapped:
 			return errors.New("provisioner index changed while writing")
 		default:
-			return errors.Wrap(db.Del(externalAccountKeyIDsByProvisionerIDTable, []byte(provisionerID)), "deleting provisioner index")
+			err := db.Del(externalAccountKeyIDsByProvisionerIDTable, []byte(provisionerID))
+			if err == nil || nosql.IsErrNotFound(err) {
+				return nil
+			}
+			return errors.Wrap(err, "deleting provisioner index")
 		}
 	}
 
