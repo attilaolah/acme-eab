@@ -12,6 +12,7 @@
 *.test
 
 # Local build outputs
+/acme-eab
 /acme-eab-add
 /result
 
