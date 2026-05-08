@@ -22,24 +22,24 @@
     packages = forAllSystems (system: let
       pkgs = import nixpkgs {inherit system;};
     in rec {
-      acme-eab-add = pkgs.buildGoModule {
-        pname = "acme-eab-add";
+      acme-eab = pkgs.buildGoModule {
+        pname = "acme-eab";
         version = self.shortRev or self.dirtyShortRev or "dirty";
 
         src = ./.;
         vendorHash = "sha256-gMwKX6rwKia4+hhbMJrJLhXidT47JGsd0//fyBemRVA=";
 
-        subPackages = ["cmd/acme-eab-add"];
+        subPackages = ["cmd/acme-eab"];
 
         meta = {
-          description = "Write Smallstep ACME External Account Binding credentials into the Step CA database";
+          description = "Manage Smallstep ACME External Account Binding credentials in the Step CA database";
           homepage = "https://github.com/attilaolah/acme-eab";
           license = lib.licenses.mit;
-          mainProgram = "acme-eab-add";
+          mainProgram = "acme-eab";
         };
       };
 
-      default = acme-eab-add;
+      default = acme-eab;
     });
 
     devShells = forAllSystems (system: let
